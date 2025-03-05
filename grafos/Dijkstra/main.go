@@ -1,92 +1,63 @@
 package main
 
 import (
-	"container/heap"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
-	"math"
 )
 
-// Definição de uma aresta
-type Aresta struct {
-	alvo int
-	peso int
+// Estrutura do Bloom Filter
+type BloomFilter struct {
+	bitset []bool
+	k      int // número de funções hash
+	m      int // tamanho do bitset
 }
 
-// Representação do grafo usando lista de adjacências
-type Grafo map[int][]Aresta
-
-// Item para a fila de prioridade
-type Item struct {
-	no, distancia int
-}
-
-// Fila de prioridade implementada com heap
-type FilaPrioridade []Item
-
-func (pq FilaPrioridade) Len() int { return len(pq) }
-func (pq FilaPrioridade) Less(i, j int) bool {
-	return pq[i].distancia < pq[j].distancia
-}
-func (pq FilaPrioridade) Swap(i, j int) {
-	pq[i], pq[j] = pq[j], pq[i]
-}
-func (pq *FilaPrioridade) Push(x interface{}) {
-	*pq = append(*pq, x.(Item))
-}
-func (pq *FilaPrioridade) Pop() interface{} {
-	old := *pq
-	n := len(old)
-	item := old[n-1]
-	*pq = old[0 : n-1]
-	return item
-}
-
-func dijkstra(grafo Grafo, inicio int) map[int]int {
-	distancias := make(map[int]int)
-	for no := range grafo {
-		distancias[no] = math.MaxInt64
+// Cria um novo Bloom Filter
+func NewBloomFilter(m, k int) *BloomFilter {
+	return &BloomFilter{
+		bitset: make([]bool, m),
+		k:      k,
+		m:      m,
 	}
-	distancias[inicio] = 0
+}
 
-	pq := &FilaPrioridade{}
-	heap.Init(pq)
-	heap.Push(pq, Item{no: inicio, distancia: 0})
+// Função hash baseada em SHA256 com um "seed" variável
+func (bf *BloomFilter) hash(data []byte, seed int) int {
+	h := sha256.New()
+	h.Write([]byte{byte(seed)})
+	h.Write(data)
+	sum := h.Sum(nil)
+	// Converte os primeiros 4 bytes para um inteiro e aplica módulo m
+	return int(binary.BigEndian.Uint32(sum) % uint32(bf.m))
+}
 
-	for pq.Len() > 0 {
-		atual := heap.Pop(pq).(Item)
-		noAtual := atual.no
-		distAtual := atual.distancia
+// Adiciona um item (como string) ao Bloom Filter
+func (bf *BloomFilter) Add(item string) {
+	data := []byte(item)
+	for i := 0; i < bf.k; i++ {
+		pos := bf.hash(data, i)
+		bf.bitset[pos] = true
+	}
+}
 
-		if distAtual > distancias[noAtual] {
-			continue
-		}
-
-		for _, aresta := range grafo[noAtual] {
-			novoDist := distAtual + aresta.peso
-			if novoDist < distancias[aresta.alvo] {
-				distancias[aresta.alvo] = novoDist
-				heap.Push(pq, Item{no: aresta.alvo, distancia: novoDist})
-			}
+// Verifica se o item pode estar presente
+func (bf *BloomFilter) Contains(item string) bool {
+	data := []byte(item)
+	for i := 0; i < bf.k; i++ {
+		pos := bf.hash(data, i)
+		if !bf.bitset[pos] {
+			return false
 		}
 	}
-
-	return distancias
+	return true
 }
 
 func main() {
-	grafo := Grafo{
-		1: {{alvo: 2, peso: 2}, {alvo: 3, peso: 4}},
-		2: {{alvo: 3, peso: 1}, {alvo: 4, peso: 7}},
-		3: {{alvo: 5, peso: 3}},
-		4: {{alvo: 6, peso: 1}},
-		5: {{alvo: 4, peso: 2}, {alvo: 6, peso: 5}},
-		6: {},
-	}
+	bf := NewBloomFilter(1000, 3) // 1000 bits, 3 funções hash
+	bf.Add("golang")
+	bf.Add("estruturas de dados")
 
-	inicio := 1
-	distancias := dijkstra(grafo, inicio)
-	fmt.Printf("Distâncias mínimas a partir do nó %d:\n", inicio)
-	for no, dist := range distancias {
-		fmt.Printf("Nó %d: %d\n", no, dist)
-	}
+	fmt.Println("Contém 'golang'?", bf.Contains("golang"))
+	fmt.Println("Contém 'python'?", bf.Contains("python"))
 }
